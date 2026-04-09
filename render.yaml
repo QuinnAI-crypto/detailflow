@@ -1,12 +1,13 @@
 services:
   - type: web
     name: detailflow
-    env: node
+    runtime: node
     buildCommand: npm install && npm run build
-    startCommand: NODE_ENV=production node dist/index.cjs
+    startCommand: NODE_ENV=production PORT=10000 node dist/index.cjs
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: "10000"
       - key: JWT_SECRET
         generateValue: true
-    autoDeploy: true
