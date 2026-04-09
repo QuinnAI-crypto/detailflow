@@ -60,7 +60,11 @@ app.use((req, res, next) => {
   next();
 });
 
-(async () => {
+// Readiness gate for serverless: queue requests until routes are registered
+let isReady = false;
+let readyPromise: Promise<void>;
+
+readyPromise = (async () => {
   seedDatabase();
   await registerRoutes(httpServer, app);
 
@@ -77,29 +81,37 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+  isReady = true;
 })();
+
+// Only listen when running as standalone server (not Vercel serverless)
+const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+if (!isServerless) {
+  readyPromise.then(() => {
+    const port = parseInt(process.env.PORT || "5000", 10);
+    httpServer.listen(
+      {
+        port,
+        host: "0.0.0.0",
+        reusePort: true,
+      },
+      () => {
+        log(`serving on port ${port}`);
+      },
+    );
+  });
+}
+
+// Vercel serverless handler — waits for routes to be registered before handling requests
+const handler = async (req: Request, res: Response) => {
+  if (!isReady) {
+    await readyPromise;
+  }
+  app(req, res);
+};
+
+export default handler;
